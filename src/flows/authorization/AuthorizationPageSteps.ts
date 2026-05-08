@@ -4,7 +4,7 @@ import {logger} from '../../shared/logger.js';
 import {sleep} from '../../shared/sleep.js';
 import type {PageActions} from '../../pages/types.js';
 import type {MailService} from '../../services/mail/MailService.js';
-import type {PhoneResourceService} from '../../services/sms/PhoneResourceService.js';
+import type {CommandLineInputService} from '../../services/input/CommandLineInputService.js';
 import {MailVerificationCodeProvider} from '../../services/verification/MailVerificationCodeProvider.js';
 import type {OAuthService} from '../../services/oauth/OAuthService.js';
 import {PageJourneyStep} from '../journey/PageJourneyStep.js';
@@ -15,6 +15,9 @@ import {retryAuthorizationFromErrorPage} from './steps/retryAuthorizationFromErr
 const FLOW_NAME = '授权';
 
 type AuthorizationStageName = 'login' | 'password' | 'mail-otp' | 'phone' | 'sms-otp' | 'consent' | 'organization' | 'callback';
+
+const PHONE_INPUT_SELECTOR = 'input#tel[name="__reservedForPhoneNumberInput_tel"]';
+const PHONE_ERROR_ICON_SELECTOR = 'svg[title="错误"]';
 
 function actionLog(stage: AuthorizationStageName, action: string, message: string): void {
     logger.info(`[${FLOW_NAME}][${stage}][${action}] ${message}`);
@@ -101,60 +104,49 @@ class FillAuthorizationPhoneNumberAction implements JourneyAction<AuthorizationJ
 
     constructor(
         private readonly pageActions: PageActions,
-        private readonly phoneResourceService: PhoneResourceService,
+        private readonly inputService: CommandLineInputService,
     ) {
     }
 
     async run(context: AuthorizationJourneyContext): Promise<void> {
-        const state = await this.phoneResourceService.acquirePhone();
+        await this.readAndFillPhoneNumber(context);
+    }
+
+    async readAndFillPhoneNumber(context: AuthorizationJourneyContext): Promise<void> {
+        const phoneNumber = await this.inputService.readPhoneNumber();
         context.phoneVerificationRequired = true;
-        context.phoneNumber = state.phoneNumber;
-        context.selectedSmsCountry = state.countryConfig;
-        await this.pageActions.typeIntoSelector('input#tel[name="__reservedForPhoneNumberInput_tel"]', state.phoneNumber);
-        actionLog('phone', this.name, `已填入手机号：${state.phoneNumber}`);
-    }
-}
-
-class SelectAuthorizationPhoneCountryAction implements JourneyAction<AuthorizationJourneyContext> {
-    readonly name = 'select-authorization-phone-country';
-
-    constructor(private readonly pageActions: PageActions) {
-    }
-
-    async run(context: AuthorizationJourneyContext): Promise<void> {
-        const country = context.selectedSmsCountry;
-        if (!country) {
-            actionLog('phone', this.name, '当前尚未选定手机号国家，跳过国家选择。');
-            return;
-        }
-
-        await this.pageActions.clickElement('button[aria-haspopup="listbox"][type="button"]', 30000);
-        try {
-            await this.pageActions.clickElementInScrollableList(
-                'div[role="listbox"]',
-                `div[role="option"][data-key="${country.browserOptionKey}"]`,
-                30000,
-            );
-        } catch {
-            await this.pageActions.clickElementInScrollableListByText(
-                'div[role="listbox"]',
-                country.browserDialCode,
-                30000,
-            );
-        }
-        actionLog('phone', this.name, `已选择手机号国家区号：${country.browserOptionKey} ${country.browserDialCode}`);
+        context.phoneNumber = phoneNumber;
+        context.selectedSmsCountry = undefined;
+        await this.pageActions.typeIntoSelectorSlowly(PHONE_INPUT_SELECTOR, phoneNumber);
+        actionLog('phone', this.name, `已逐字符填入手机号：${phoneNumber}`);
     }
 }
 
 class ClickAuthorizationPhoneContinueAction implements JourneyAction<AuthorizationJourneyContext> {
     readonly name = 'click-authorization-phone-continue';
 
-    constructor(private readonly pageActions: PageActions) {
+    constructor(
+        private readonly pageActions: PageActions,
+        private readonly phoneNumberAction: FillAuthorizationPhoneNumberAction,
+    ) {
     }
 
-    async run(): Promise<void> {
-        await this.pageActions.clickElement('button[data-dd-action-name="Continue"][type="submit"]', 30000);
-        actionLog('phone', this.name, '已点击手机号继续按钮。');
+    async run(context: AuthorizationJourneyContext): Promise<void> {
+        while (true) {
+            await this.pageActions.clickElement('button[data-dd-action-name="Continue"][type="submit"]', 30000);
+            actionLog('phone', this.name, '已点击手机号继续按钮。');
+            await sleep(1500);
+
+            const hasPhoneError = await this.pageActions.isSelectorVisible(PHONE_ERROR_ICON_SELECTOR);
+            actionLog('phone', this.name, `手机号错误图标检测结果：${hasPhoneError ? '已出现' : '未出现'} selector=${PHONE_ERROR_ICON_SELECTOR}`);
+
+            if (!hasPhoneError) {
+                return;
+            }
+
+            actionLog('phone', this.name, '检测到手机号错误提示，请重新输入手机号。');
+            await this.phoneNumberAction.readAndFillPhoneNumber(context);
+        }
     }
 }
 
@@ -163,37 +155,15 @@ class FillAuthorizationSmsCodeAction implements JourneyAction<AuthorizationJourn
 
     constructor(
         private readonly pageActions: PageActions,
-        private readonly phoneResourceService: PhoneResourceService,
-        private readonly maxPhoneRetries: number,
+        private readonly inputService: CommandLineInputService,
     ) {
     }
 
     async run(context: AuthorizationJourneyContext): Promise<void> {
-        for (let attempt = 1; attempt <= this.maxPhoneRetries; attempt += 1) {
-            try {
-                const code = await this.phoneResourceService.getVerificationCode();
-                context.smsVerificationCode = code;
-                await this.pageActions.typeIntoSelector('input[name="code"]', code);
-                actionLog('sms-otp', this.name, '已将短信验证码填入 input[name="code"]。');
-                return;
-            } catch (error) {
-                if (attempt >= this.maxPhoneRetries) {
-                    throw error;
-                }
-
-                logger.warn(`[${FLOW_NAME}][sms-otp][${this.name}] 当前号码收码超时，已取消并准备换号重试。attempt=${attempt}/${this.maxPhoneRetries}`);
-                const nextState = await this.phoneResourceService.replacePhone();
-                context.phoneVerificationRequired = true;
-                context.phoneNumber = nextState.phoneNumber;
-                context.selectedSmsCountry = nextState.countryConfig;
-                await this.pageActions.typeIntoSelector('input#tel[name="__reservedForPhoneNumberInput_tel"]', nextState.phoneNumber);
-                actionLog('sms-otp', this.name, `已重新填入手机号：${nextState.phoneNumber}`);
-                await this.pageActions.clickElement('button[data-dd-action-name="Continue"][type="submit"]', 30000);
-                actionLog('sms-otp', this.name, '已重新点击手机号继续按钮。');
-                await this.phoneResourceService.markReady();
-                actionLog('sms-otp', this.name, '已重新将手机号激活记录标记为就绪。');
-            }
-        }
+        const code = await this.inputService.readSmsCode();
+        context.smsVerificationCode = code;
+        await this.pageActions.typeIntoSelector('input[name="code"]', code);
+        actionLog('sms-otp', this.name, '已将命令行输入的短信验证码填入 input[name="code"]。');
     }
 }
 
@@ -378,31 +348,26 @@ export function createAuthorizationMailOtpPageStep(
 
 export function createAuthorizationPhonePageStep(
     pageActions: PageActions,
-    phoneResourceService: PhoneResourceService,
+    inputService: CommandLineInputService,
 ): JourneyStep<AuthorizationJourneyContext> {
+    const phoneNumberAction = new FillAuthorizationPhoneNumberAction(pageActions, inputService);
     return new PageJourneyStep('authorization-phone-page', ['phone'], 'phone', [
-        new FillAuthorizationPhoneNumberAction(pageActions, phoneResourceService),
-        new SelectAuthorizationPhoneCountryAction(pageActions),
-        new ClickAuthorizationPhoneContinueAction(pageActions),
+        phoneNumberAction,
+        new ClickAuthorizationPhoneContinueAction(pageActions, phoneNumberAction),
     ], FLOW_NAME, async () => {
         await retryAuthorizationFromErrorPage(pageActions, 'authorization-phone-page');
-        await phoneResourceService.markReady();
-        actionLog('phone', 'mark-authorization-phone-ready', '已将手机号激活记录标记为就绪。');
     });
 }
 
 export function createAuthorizationSmsOtpPageStep(
     pageActions: PageActions,
-    phoneResourceService: PhoneResourceService,
-    maxPhoneRetries: number,
+    inputService: CommandLineInputService,
 ): JourneyStep<AuthorizationJourneyContext> {
     return new PageJourneyStep('authorization-sms-otp-page', ['sms-otp'], 'sms-otp', [
-        new FillAuthorizationSmsCodeAction(pageActions, phoneResourceService, maxPhoneRetries),
+        new FillAuthorizationSmsCodeAction(pageActions, inputService),
         new ClickAuthorizationSmsContinueAction(pageActions),
     ], FLOW_NAME, async () => {
         await retryAuthorizationFromErrorPage(pageActions, 'authorization-sms-otp-page');
-        await phoneResourceService.markVerificationSucceeded();
-        actionLog('sms-otp', 'mark-authorization-verification-succeeded', '已将手机号验证状态标记为成功。');
     });
 }
 

@@ -21,7 +21,6 @@ export const defaultConfig: AppConfig = {
         },
     },
     startUrl: 'https://example.com',
-    readyText: '',
     mail: {
         baseUrl: '',
         adminPassword: '',
@@ -37,8 +36,10 @@ export const defaultConfig: AppConfig = {
             service: 'dr',
             countries: [
                 {
+                    name: 'Thailand',
                     browserOptionKey: 'TH',
                     browserDialCode: '+66',
+                    order: 0,
                     providerCountry: 16,
                     maxPrice: 0.067,
                 },
@@ -49,8 +50,10 @@ export const defaultConfig: AppConfig = {
             product: '',
             countries: [
                 {
+                    name: 'Thailand',
                     browserOptionKey: 'TH',
                     browserDialCode: '+66',
+                    order: 0,
                     providerCountry: 'any',
                     providerOperator: 'any',
                 },

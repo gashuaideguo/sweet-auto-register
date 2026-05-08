@@ -47,7 +47,6 @@ export async function openAndInspectJourney(browserService: BrowserService, conf
 
     const initialContext: JourneyContext = {
         startUrl: config.startUrl,
-        readyText: config.readyText,
     };
     await new OpenHomeStep(browserService).run(initialContext);
     await waitForChallengeStep.run(initialContext);

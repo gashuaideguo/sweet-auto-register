@@ -10,7 +10,7 @@ export type BrowserProxyConfig = {
   password: string;
 };
 
-export type BrowserProviderType = 'puppeteer' | 'real-browser';
+export type BrowserProviderType = 'puppeteer' | 'real-browser' | 'puppeteer-extra';
 
 export type BrowserConfig = {
   provider: BrowserProviderType;
@@ -36,8 +36,10 @@ export type MailConfig = {
 export type SmsProviderType = 'hero-sms' | '5sim';
 
 export type SmsCountryConfig = {
+  name: string;
   browserOptionKey: string;
   browserDialCode: string;
+  order: number;
 };
 
 export type HeroSmsCountryConfig = SmsCountryConfig & {
@@ -93,7 +95,6 @@ export type OAuthConfig = {
 export type AppConfig = {
   browser: BrowserConfig;
   startUrl: string;
-  readyText?: string;
   mail: MailConfig;
   sms: SmsConfig;
   sync: SyncConfig;

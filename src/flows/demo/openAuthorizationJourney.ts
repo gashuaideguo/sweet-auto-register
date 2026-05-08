@@ -3,8 +3,7 @@ import type {BrowserService} from '../../browser/BrowserService.js';
 import {logger} from '../../shared/logger.js';
 import {OAuthService} from '../../services/oauth/OAuthService.js';
 import {HttpMailService} from '../../services/mail/HttpMailService.js';
-import {PhoneResourceService} from '../../services/sms/PhoneResourceService.js';
-import {createSmsService} from '../../services/sms/createSmsService.js';
+import {CommandLineInputService} from '../../services/input/CommandLineInputService.js';
 import type {AuthorizationAccount} from '../authorizationFlow.js';
 import {JourneyRunner} from '../journey/JourneyRunner.js';
 import {WaitForBrowserChallengeStep} from '../journey/steps/WaitForBrowserChallengeStep.js';
@@ -29,20 +28,7 @@ export async function openAuthorizationJourney(browserService: BrowserService, c
     const page = browserService.getPage();
     const pageActions = new CommonPageActions(page);
     const mailService = new HttpMailService(config.mail);
-    const countries = config.sms.provider === '5sim'
-        ? config.sms.fiveSim.countries
-        : config.sms.heroSms.countries;
-    const smsServices = countries.map((country) => ({
-        provider: config.sms.provider,
-        country,
-        smsService: createSmsService(config.sms, country),
-    }));
-    const phoneResourceService = new PhoneResourceService(smsServices, {
-        provider: config.sms.provider,
-        maxUses: 3,
-        pollIntervalMs: config.sms.pollIntervalMs,
-        maxAttempts: config.sms.maxAttempts,
-    });
+    const commandLineInputService = new CommandLineInputService();
     const waitForChallengeStep = new WaitForBrowserChallengeStep<AuthorizationJourneyContext>(browserService, config.browser.challengeTimeoutMs);
     const authorizationUrl = oauthService.getAuthUrl();
     const redirectUrl = new URL(oauthService.getRedirectUri());
@@ -130,8 +116,8 @@ export async function openAuthorizationJourney(browserService: BrowserService, c
             intervalMs: config.mail.pollIntervalMs,
             maxAttempts: config.mail.maxAttempts,
         }),
-        createAuthorizationPhonePageStep(pageActions, phoneResourceService),
-        createAuthorizationSmsOtpPageStep(pageActions, phoneResourceService, config.sms.numberMaxRetries),
+        createAuthorizationPhonePageStep(pageActions, commandLineInputService),
+        createAuthorizationSmsOtpPageStep(pageActions, commandLineInputService),
         createAuthorizationConsentPageStep(pageActions),
         createAuthorizationOrganizationPageStep(pageActions),
         createAuthorizationCallbackPageStep(

@@ -4,7 +4,6 @@ export type RegistrationStage = 'login' | 'password' | 'mail-otp' | 'profile' | 
 
 export type JourneyContext = {
     startUrl: string;
-    readyText?: string;
     finalUrl?: string;
     title?: string;
     currentUrl?: string;

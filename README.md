@@ -34,89 +34,75 @@ npm install
 
 ## 配置文件
 
-项目从根目录 `config.json` 读取配置。
+项目从根目录 `config.yaml` 读取配置。
 
 可以参考下面这个结构：
 
-```json
-{
-  "browser": {
-    "provider": "real-browser",
-    "turnstile": false,
-    "challengeTimeoutMs": 60000,
-    "useChrome": true,
-    "chromePath": "",
-    "headless": false,
-    "keepOpen": true,
-    "viewport": {
-      "width": 1280,
-      "height": 900
-    },
-    "proxy": {
-      "host": "",
-      "port": 0,
-      "username": "",
-      "password": ""
-    }
-  },
-  "startUrl": "https://example.com",
-  "readyText": "",
-  "mail": {
-    "baseUrl": "",
-    "adminPassword": "",
-    "sitePassword": "",
-    "domain": "",
-    "pollIntervalMs": 5000,
-    "maxAttempts": 30
-  },
-  "sms": {
-    "provider": "hero-sms",
-    "heroSms": {
-      "apiKey": "",
-      "service": "dr",
-      "countries": [
-        {
-          "browserOptionKey": "TH",
-          "browserDialCode": "+66",
-          "providerCountry": 16,
-          "maxPrice": 0.067
-        }
-      ]
-    },
-    "fiveSim": {
-      "apiKey": "",
-      "product": "",
-      "countries": [
-        {
-          "browserOptionKey": "TH",
-          "browserDialCode": "+66",
-          "providerCountry": "any",
-          "providerOperator": "any"
-        }
-      ]
-    },
-    "pollIntervalMs": 5000,
-    "maxAttempts": 60,
-    "numberMaxRetries": 5
-  },
-  "sync": {
-    "enabled": false,
-    "host": "",
-    "port": 22,
-    "username": "",
-    "password": "",
-    "remotePath": ""
-  },
-  "oauth": {
-    "clientId": "YOUR_OAUTH_CLIENT_ID",
-    "authorizeUrl": "https://your-oauth-domain.example.com/oauth/authorize",
-    "tokenUrl": "https://your-oauth-domain.example.com/oauth/token",
-    "redirectHost": "127.0.0.1",
-    "redirectPort": 1455,
-    "redirectPath": "/auth/callback",
-    "scope": "openid profile email offline_access"
-  }
-}
+```yaml
+browser:
+  provider: real-browser
+  turnstile: false
+  challengeTimeoutMs: 60000
+  useChrome: true
+  chromePath: ""
+  headless: false
+  keepOpen: true
+  viewport:
+    width: 1280
+    height: 900
+  proxy:
+    host: ""
+    port: 0
+    username: ""
+    password: ""
+startUrl: https://example.com
+mail:
+  baseUrl: ""
+  adminPassword: ""
+  sitePassword: ""
+  domain: ""
+  pollIntervalMs: 5000
+  maxAttempts: 30
+sms:
+  provider: hero-sms
+  heroSms:
+    apiKey: ""
+    service: dr
+    countries:
+      - name: Thailand
+        browserOptionKey: TH
+        browserDialCode: "+66"
+        order: 0
+        providerCountry: 16
+        maxPrice: 0.067
+  fiveSim:
+    apiKey: ""
+    product: ""
+    countries:
+      - name: Thailand
+        browserOptionKey: TH
+        browserDialCode: "+66"
+        order: 0
+        providerCountry: any
+        providerOperator: any
+  pollIntervalMs: 5000
+  maxAttempts: 60
+  numberMaxRetries: 5
+sync:
+  enabled: false
+  host: ""
+  port: 22
+  username: ""
+  password: ""
+  remotePath: ""
+oauth:
+  clientId: YOUR_OAUTH_CLIENT_ID
+  authorizeUrl: https://your-oauth-domain.example.com/oauth/authorize
+  tokenUrl: https://your-oauth-domain.example.com/oauth/token
+  redirectHost: 127.0.0.1
+  redirectPort: 1455
+  redirectPath: /auth/callback
+  scope: openid profile email offline_access
 ```
 
 ## 常用命令
@@ -178,19 +164,16 @@ auth/cpa/codex-user@example.com-free.json
 npm run sync
 ```
 
-使用前需要先在 `config.json` 里配置：
+使用前需要先在 `config.yaml` 里配置：
 
-```json
-{
-  "sync": {
-    "enabled": true,
-    "host": "你的服务器地址",
-    "port": 22,
-    "username": "你的用户名",
-    "password": "你的密码",
-    "remotePath": "/你的目标目录"
-  }
-}
+```yaml
+sync:
+  enabled: true
+  host: 你的服务器地址
+  port: 22
+  username: 你的用户名
+  password: 你的密码
+  remotePath: /你的目标目录
 ```
 
 当前同步逻辑：
@@ -241,7 +224,7 @@ npm run callback
 
 推荐日常使用顺序：
 
-1. 配好 `config.json`
+1. 配好 `config.yaml`
 2. 执行主流程：
 
 ```bash
@@ -257,7 +240,7 @@ npm run sync
 
 ## 注意事项
 
-- `sync` 当前使用的是账号密码方式上传，密码保存在 `config.json` 中。
+- `sync` 当前使用的是账号密码方式上传，密码保存在 `config.yaml` 中。
 - `npm run sync` 上传成功后会删除本地 `auth/cpa` 文件。
 - 如果 `auth/register/` 没有可用账号，授权流程会自动跳过。
 - 如果 `auth/cpa/` 为空，`npm run sync` 会直接跳过。

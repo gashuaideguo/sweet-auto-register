@@ -251,7 +251,7 @@ export class CommonPageActions implements PageActions {
     try {
       return await this.page.evaluate((target) => {
         const element = document.querySelector(target);
-        if (!(element instanceof HTMLElement)) {
+        if (!(element instanceof Element)) {
           return false;
         }
 
@@ -267,41 +267,39 @@ export class CommonPageActions implements PageActions {
   }
 
   async typeIntoSelector(selector: string, value: string): Promise<void> {
+    await this.typeIntoSelectorSlowly(selector, value);
+  }
+
+  async typeIntoSelectorSlowly(selector: string, value: string, delayMs = 150): Promise<void> {
     const timeoutMs = 30000;
     const start = Date.now();
 
     while (Date.now() - start < timeoutMs) {
       try {
         const context = await this.findVisibleContext(selector, timeoutMs - (Date.now() - start));
-
         await context.focus(selector);
         await context.click(selector, { clickCount: 3 });
-        const updated = await context.evaluate(
-          (target, nextValue) => {
-            const element = document.querySelector(target);
-            if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) {
-              return false;
-            }
+        await context.evaluate((target) => {
+          const element = document.querySelector(target);
+          if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) {
+            return false;
+          }
 
-            const prototype = element instanceof HTMLInputElement
-              ? HTMLInputElement.prototype
-              : HTMLTextAreaElement.prototype;
-            const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
-            descriptor?.set?.call(element, '');
-            element.dispatchEvent(new Event('input', { bubbles: true }));
-            descriptor?.set?.call(element, nextValue);
-            element.dispatchEvent(new Event('input', { bubbles: true }));
-            element.dispatchEvent(new Event('change', { bubbles: true }));
-            return true;
-          },
-          selector,
-          value,
-        );
+          const prototype = element instanceof HTMLInputElement
+            ? HTMLInputElement.prototype
+            : HTMLTextAreaElement.prototype;
+          const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
+          descriptor?.set?.call(element, '');
+          element.dispatchEvent(new Event('input', { bubbles: true }));
+          element.dispatchEvent(new Event('change', { bubbles: true }));
+          return true;
+        }, selector);
 
-        if (!updated) {
-          throw new Error(`Failed to type into element: ${selector}`);
+        for (const character of value) {
+          await context.type(selector, character, { delay: delayMs });
         }
 
+        logger.info(`[页面操作] 已逐字符输入：${selector}`);
         return;
       } catch (error) {
         if (!this.isRetryableContextError(error) || Date.now() - start >= timeoutMs) {
@@ -311,7 +309,7 @@ export class CommonPageActions implements PageActions {
       }
     }
 
-    throw new Error(`Timed out typing into element: ${selector}`);
+    throw new Error(`Timed out slowly typing into element: ${selector}`);
   }
 
   async setInputValue(selector: string, value: string): Promise<void> {

@@ -27,14 +27,14 @@ export class PhoneResourceService {
       const matchingService = this.findMatchingService(state.provider, state.countryConfig);
       if (matchingService && state.useCount < this.options.maxUses) {
         matchingService.smsService.restoreActivation(state);
-        logger.info(`[授权] 正在复用手机号：${state.phoneNumber} useCount=${state.useCount}/${this.options.maxUses}`);
+        logger.info(`[授权] 正在复用手机号：${this.formatPhoneLabel(state.countryConfig, state.phoneNumber)} useCount=${state.useCount}/${this.options.maxUses}`);
         return state;
       }
 
       if (!matchingService) {
         logger.info(`[授权] 当前手机号供应商或国家配置不匹配，准备重新申请。provider=${state.provider}`);
       } else {
-        logger.info(`[授权] 当前手机号已达到使用上限，准备重新申请。phone=${state.phoneNumber} useCount=${state.useCount}`);
+        logger.info(`[授权] 当前手机号已达到使用上限，准备重新申请。phone=${this.formatPhoneLabel(state.countryConfig, state.phoneNumber)} useCount=${state.useCount}`);
       }
       await this.cancelCurrentPhone();
     }
@@ -72,7 +72,7 @@ export class PhoneResourceService {
       updatedAt: new Date().toISOString(),
     };
     this.writeState(nextState);
-    logger.info(`[授权] 已更新手机号使用次数。phone=${nextState.phoneNumber} useCount=${nextState.useCount}/${this.options.maxUses}`);
+    logger.info(`[授权] 已更新手机号使用次数。phone=${this.formatPhoneLabel(nextState.countryConfig, nextState.phoneNumber)} useCount=${nextState.useCount}/${this.options.maxUses}`);
   }
 
   async cancelCurrentPhone(): Promise<void> {
@@ -113,7 +113,7 @@ export class PhoneResourceService {
         };
 
         this.writeState(state);
-        logger.info(`[授权] 已持久化手机号状态：${state.phoneNumber}`);
+        logger.info(`[授权] 已持久化手机号状态：${this.formatPhoneLabel(state.countryConfig, state.phoneNumber)}`);
         return state;
       } catch (error) {
         lastError = error;
@@ -142,7 +142,7 @@ export class PhoneResourceService {
       updatedAt: new Date().toISOString(),
     };
     this.writeState(nextState);
-    logger.info(`[授权] 已记录短信验证码。phone=${nextState.phoneNumber} code=${code}`);
+    logger.info(`[授权] 已记录短信验证码。phone=${this.formatPhoneLabel(nextState.countryConfig, nextState.phoneNumber)} code=${code}`);
   }
 
   private requireState(): PersistedPhoneState {
@@ -161,6 +161,10 @@ export class PhoneResourceService {
     }
     activeService.smsService.restoreActivation(state);
     return activeService;
+  }
+
+  private formatPhoneLabel(country: SmsCountryConfig, phoneNumber: string): string {
+    return `${country.name || country.browserOptionKey} ${phoneNumber}`;
   }
 
   private findMatchingService(provider: SmsProviderType | string, country: SmsCountryConfig): { provider: SmsProviderType; country: SmsCountryConfig; smsService: SmsService } | null {
@@ -188,8 +192,10 @@ export class PhoneResourceService {
 
     const rawCountryConfig = parsed.countryConfig;
     const countryConfig: SmsCountryConfig = {
+      name: String(rawCountryConfig?.name ?? rawCountryConfig?.browserOptionKey ?? ''),
       browserOptionKey: String(rawCountryConfig?.browserOptionKey ?? ''),
       browserDialCode: String(rawCountryConfig?.browserDialCode ?? parsed.countryCode ?? ''),
+      order: Number(rawCountryConfig?.order ?? 0) || 0,
     };
 
     return {

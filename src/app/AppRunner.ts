@@ -44,7 +44,7 @@ export class AppRunner {
         for (let index = 1; index <= this.accountCount; index += 1) {
             logger.info(`[应用] 开始执行第 ${index}/${this.accountCount} 个账号流程。`);
             await this.runRegistration(config);
-            await this.runAuthorization(config);
+            // await this.runAuthorization(config);
         }
     }
 

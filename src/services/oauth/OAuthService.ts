@@ -213,7 +213,7 @@ export class OAuthService {
             isPlaceholder(this.config.authorizeUrl) ||
             isPlaceholder(this.config.tokenUrl)
         ) {
-            throw new Error('[OAuth] OAuth 配置仍为占位值，请先在 config.json 中填写 oauth.clientId/oauth.authorizeUrl/oauth.tokenUrl。');
+            throw new Error('[OAuth] OAuth 配置仍为占位值，请先在 config.yaml 中填写 oauth.clientId/oauth.authorizeUrl/oauth.tokenUrl。');
         }
     }
 }

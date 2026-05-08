@@ -11,6 +11,7 @@ export interface PageActions {
   isTextVisible(text: string): Promise<boolean>;
   isSelectorVisible(selector: string): Promise<boolean>;
   typeIntoSelector(selector: string, value: string): Promise<void>;
+  typeIntoSelectorSlowly(selector: string, value: string, delayMs?: number): Promise<void>;
   setInputValue(selector: string, value: string): Promise<void>;
   getTitle(): Promise<string>;
 }

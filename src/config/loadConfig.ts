@@ -1,32 +1,47 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { parse } from 'yaml';
 import { defaultConfig } from './defaultConfig.js';
 import type { AppConfig, FiveSimCountryConfig, HeroSmsCountryConfig } from './types.js';
 
-const configPath = path.join(process.cwd(), 'config.json');
+const configPath = path.join(process.cwd(), 'config.yaml');
+
+function sortCountriesByOrder<T extends { order: number }>(countries: T[]): T[] {
+  return [...countries].sort((left, right) => right.order - left.order);
+}
 
 function normalizeHeroSmsCountries(input: Partial<AppConfig>): HeroSmsCountryConfig[] {
   const rawCountries = Array.isArray(input.sms?.heroSms?.countries) ? input.sms.heroSms.countries : defaultConfig.sms.heroSms.countries;
-  return rawCountries
+  return sortCountriesByOrder(rawCountries
     .map((country): HeroSmsCountryConfig => ({
+      name: String(country?.name ?? country?.browserOptionKey ?? ''),
       browserOptionKey: String(country?.browserOptionKey ?? ''),
       browserDialCode: String(country?.browserDialCode ?? ''),
+      order: Number(country?.order ?? 0) || 0,
       providerCountry: Number(country?.providerCountry ?? 0),
       maxPrice: Number(country?.maxPrice ?? defaultConfig.sms.heroSms.countries[0]?.maxPrice ?? 0) || defaultConfig.sms.heroSms.countries[0]?.maxPrice || 0,
     }))
-    .filter((country) => Boolean(country.browserOptionKey || country.browserDialCode));
+    .filter((country) => Boolean(country.browserOptionKey || country.browserDialCode)));
 }
 
 function normalizeFiveSimCountries(input: Partial<AppConfig>): FiveSimCountryConfig[] {
   const rawCountries = Array.isArray(input.sms?.fiveSim?.countries) ? input.sms.fiveSim.countries : defaultConfig.sms.fiveSim.countries;
-  return rawCountries
+  return sortCountriesByOrder(rawCountries
     .map((country): FiveSimCountryConfig => ({
+      name: String(country?.name ?? country?.browserOptionKey ?? ''),
       browserOptionKey: String(country?.browserOptionKey ?? ''),
       browserDialCode: String(country?.browserDialCode ?? ''),
+      order: Number(country?.order ?? 0) || 0,
       providerCountry: String(country?.providerCountry ?? ''),
       providerOperator: String(country?.providerOperator ?? ''),
     }))
-    .filter((country) => Boolean(country.browserOptionKey || country.browserDialCode));
+    .filter((country) => Boolean(country.browserOptionKey || country.browserDialCode)));
+}
+
+const browserProviderTypes = ['real-browser', 'puppeteer', 'puppeteer-extra'] as const;
+
+function isBrowserProviderType(value: unknown): value is AppConfig['browser']['provider'] {
+  return browserProviderTypes.includes(value as AppConfig['browser']['provider']);
 }
 
 function normalizeConfig(input: Partial<AppConfig>): AppConfig {
@@ -34,7 +49,7 @@ function normalizeConfig(input: Partial<AppConfig>): AppConfig {
     ...defaultConfig,
     ...input,
     browser: {
-      provider: input.browser?.provider === 'real-browser' || input.browser?.provider === 'puppeteer' ? input.browser.provider : defaultConfig.browser.provider,
+      provider: isBrowserProviderType(input.browser?.provider) ? input.browser.provider : defaultConfig.browser.provider,
       turnstile: input.browser?.turnstile ?? defaultConfig.browser.turnstile,
       challengeTimeoutMs: Number(input.browser?.challengeTimeoutMs ?? defaultConfig.browser.challengeTimeoutMs) || defaultConfig.browser.challengeTimeoutMs,
       useChrome: input.browser?.useChrome ?? defaultConfig.browser.useChrome,
@@ -102,6 +117,6 @@ export function loadConfig(): AppConfig {
   }
 
   const raw = fs.readFileSync(configPath, 'utf8');
-  const parsed = JSON.parse(raw) as Partial<AppConfig>;
+  const parsed = parse(raw) as Partial<AppConfig>;
   return normalizeConfig(parsed);
 }

@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import type {Browser, Page} from 'rebrowser-puppeteer-core';
 import type {AppConfig} from '../config/types.js';
 import {logger} from '../shared/logger.js';
@@ -111,6 +113,25 @@ export class BrowserService {
         const page = this.getPage();
         await page.screenshot({path: filePath});
         logger.info(`[浏览器] 截图已保存：${filePath}`);
+    }
+
+    async screenshotOnError(scope: string): Promise<void> {
+        if (!this.page) {
+            logger.warn('[浏览器] 当前没有可截图页面，已跳过错误截图。');
+            return;
+        }
+
+        const directory = path.join(process.cwd(), 'auth', 'screenshots');
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filePath = path.join(directory, `${scope}-${timestamp}.png`);
+
+        try {
+            fs.mkdirSync(directory, {recursive: true});
+            await this.screenshot(filePath);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            logger.warn(`[浏览器] 错误截图失败：${message}`);
+        }
     }
 
     async close(): Promise<void> {

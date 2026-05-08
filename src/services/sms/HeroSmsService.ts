@@ -51,7 +51,7 @@ export class HeroSmsService implements SmsService, PhoneProvider {
                 data = await this.request('getNumberV2', {
                     service: this.config.heroSms.service,
                     country: this.country.providerCountry,
-                    fixedPrice: true,
+                    fixedPrice: false,
                     maxPrice: this.country.maxPrice,
                 });
             } catch (error) {
@@ -167,7 +167,7 @@ export class HeroSmsService implements SmsService, PhoneProvider {
         url.searchParams.set('action', action);
         Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, String(value)));
 
-        const maxRequestRetries = 3;
+        const maxRequestRetries = 10;
         let lastError: unknown = null;
 
         for (let attempt = 1; attempt <= maxRequestRetries; attempt += 1) {

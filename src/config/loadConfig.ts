@@ -33,15 +33,28 @@ function normalizeFiveSimCountries(input: Partial<AppConfig>): FiveSimCountryCon
       browserDialCode: String(country?.browserDialCode ?? ''),
       order: Number(country?.order ?? 0) || 0,
       providerCountry: String(country?.providerCountry ?? ''),
-      providerOperator: String(country?.providerOperator ?? ''),
+      providerOperator: String(country?.providerOperator || defaultConfig.sms.fiveSim.countries[0]?.providerOperator || 'any'),
+      maxPrice: Number(country?.maxPrice ?? defaultConfig.sms.fiveSim.countries[0]?.maxPrice ?? 0) || 0,
     }))
-    .filter((country) => Boolean(country.browserOptionKey || country.browserDialCode)));
+    .filter((country) => Boolean(country.browserOptionKey || country.browserDialCode || country.providerCountry || country.providerOperator)));
 }
 
 const browserProviderTypes = ['real-browser', 'puppeteer', 'puppeteer-extra'] as const;
 
 function isBrowserProviderType(value: unknown): value is AppConfig['browser']['provider'] {
   return browserProviderTypes.includes(value as AppConfig['browser']['provider']);
+}
+
+function normalizeSmsProvider(value: unknown): AppConfig['sms']['provider'] {
+  const provider = String(value ?? '');
+  if (provider === '5sim' || provider === 'five-sim' || provider === 'fivesim') {
+    return '5sim';
+  }
+  if (provider === 'hero-sms') {
+    return 'hero-sms';
+  }
+
+  return defaultConfig.sms.provider;
 }
 
 function normalizeConfig(input: Partial<AppConfig>): AppConfig {
@@ -76,7 +89,7 @@ function normalizeConfig(input: Partial<AppConfig>): AppConfig {
       maxAttempts: Number(input.mail?.maxAttempts ?? defaultConfig.mail.maxAttempts) || defaultConfig.mail.maxAttempts,
     },
     sms: {
-      provider: input.sms?.provider === '5sim' || input.sms?.provider === 'hero-sms' ? input.sms.provider : defaultConfig.sms.provider,
+      provider: normalizeSmsProvider(input.sms?.provider),
       heroSms: {
         apiKey: String(input.sms?.heroSms?.apiKey ?? defaultConfig.sms.heroSms.apiKey),
         service: String(input.sms?.heroSms?.service ?? defaultConfig.sms.heroSms.service),

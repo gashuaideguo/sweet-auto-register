@@ -14,6 +14,7 @@ export interface PageActions {
   typeIntoSelectorSlowly(selector: string, value: string, delayMs?: number): Promise<void>;
   setInputValue(selector: string, value: string): Promise<void>;
   getTitle(): Promise<string>;
+  getHtml(options?: { stableDurationMs?: number; timeoutMs?: number; pollIntervalMs?: number }): Promise<string>;
 }
 
 export type PageActionContext = {

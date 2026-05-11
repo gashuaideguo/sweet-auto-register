@@ -4,7 +4,8 @@ import {logger} from '../../shared/logger.js';
 import {sleep} from '../../shared/sleep.js';
 import type {PageActions} from '../../pages/types.js';
 import type {MailService} from '../../services/mail/MailService.js';
-import type {CommandLineInputService} from '../../services/input/CommandLineInputService.js';
+import type {PhoneResourceService} from '../../services/sms/PhoneResourceService.js';
+import type {PersistedPhoneState} from '../../services/sms/types.js';
 import {MailVerificationCodeProvider} from '../../services/verification/MailVerificationCodeProvider.js';
 import type {OAuthService} from '../../services/oauth/OAuthService.js';
 import {PageJourneyStep} from '../journey/PageJourneyStep.js';
@@ -17,10 +18,17 @@ const FLOW_NAME = '授权';
 type AuthorizationStageName = 'login' | 'password' | 'mail-otp' | 'phone' | 'sms-otp' | 'consent' | 'organization' | 'callback';
 
 const PHONE_INPUT_SELECTOR = 'input#tel[name="__reservedForPhoneNumberInput_tel"]';
-const PHONE_ERROR_ICON_SELECTOR = 'svg[title="错误"]';
+const PHONE_ERROR_ICON_SELECTOR = 'svg[title="错误"], svg[title="error"], svg[title="Error"]';
+const PHONE_HTML_DIR = path.join(process.cwd(), 'auth', 'html');
 
 function actionLog(stage: AuthorizationStageName, action: string, message: string): void {
     logger.info(`[${FLOW_NAME}][${stage}][${action}] ${message}`);
+}
+
+function createHtmlSnapshotPath(prefix: string): string {
+    fs.mkdirSync(PHONE_HTML_DIR, {recursive: true});
+    const timestamp = new Date().toISOString().replace(/[.:]/g, '-');
+    return path.join(PHONE_HTML_DIR, `${prefix}-${timestamp}.html`);
 }
 
 class FillAuthorizationEmailAction implements JourneyAction<AuthorizationJourneyContext> {
@@ -104,21 +112,30 @@ class FillAuthorizationPhoneNumberAction implements JourneyAction<AuthorizationJ
 
     constructor(
         private readonly pageActions: PageActions,
-        private readonly inputService: CommandLineInputService,
+        private readonly phoneResourceService: PhoneResourceService,
     ) {
     }
 
     async run(context: AuthorizationJourneyContext): Promise<void> {
-        await this.readAndFillPhoneNumber(context);
+        await this.acquireAndFillPhoneNumber(context);
     }
 
-    async readAndFillPhoneNumber(context: AuthorizationJourneyContext): Promise<void> {
-        const phoneNumber = await this.inputService.readPhoneNumber();
+    async acquireAndFillPhoneNumber(context: AuthorizationJourneyContext): Promise<void> {
+        const state = await this.phoneResourceService.acquirePhone();
+        await this.fillPhoneNumber(context, state);
+    }
+
+    async replaceAndFillPhoneNumber(context: AuthorizationJourneyContext): Promise<void> {
+        const state = await this.phoneResourceService.replacePhone();
+        await this.fillPhoneNumber(context, state);
+    }
+
+    private async fillPhoneNumber(context: AuthorizationJourneyContext, state: PersistedPhoneState): Promise<void> {
         context.phoneVerificationRequired = true;
-        context.phoneNumber = phoneNumber;
-        context.selectedSmsCountry = undefined;
-        await this.pageActions.typeIntoSelectorSlowly(PHONE_INPUT_SELECTOR, phoneNumber);
-        actionLog('phone', this.name, `已逐字符填入手机号：${phoneNumber}`);
+        context.phoneNumber = state.phoneNumber;
+        context.selectedSmsCountry = state.countryConfig;
+        await this.pageActions.typeIntoSelectorSlowly(PHONE_INPUT_SELECTOR, state.phoneNumber);
+        actionLog('phone', this.name, `已逐字符填入手机号：${state.phoneNumber}`);
     }
 }
 
@@ -137,6 +154,11 @@ class ClickAuthorizationPhoneContinueAction implements JourneyAction<Authorizati
             actionLog('phone', this.name, '已点击手机号继续按钮。');
             await sleep(1500);
 
+            // const htmlPath = createHtmlSnapshotPath('authorization-phone-after-continue');
+            // const html = await this.pageActions.getHtml({stableDurationMs: 3000, timeoutMs: 15000});
+            // fs.writeFileSync(htmlPath, html, 'utf8');
+            // actionLog('phone', this.name, `手机号继续后页面 HTML 已保存：${htmlPath}`);
+
             const hasPhoneError = await this.pageActions.isSelectorVisible(PHONE_ERROR_ICON_SELECTOR);
             actionLog('phone', this.name, `手机号错误图标检测结果：${hasPhoneError ? '已出现' : '未出现'} selector=${PHONE_ERROR_ICON_SELECTOR}`);
 
@@ -144,8 +166,8 @@ class ClickAuthorizationPhoneContinueAction implements JourneyAction<Authorizati
                 return;
             }
 
-            actionLog('phone', this.name, '检测到手机号错误提示，请重新输入手机号。');
-            await this.phoneNumberAction.readAndFillPhoneNumber(context);
+            actionLog('phone', this.name, '检测到手机号错误提示，取消当前手机号并重新获取。');
+            await this.phoneNumberAction.replaceAndFillPhoneNumber(context);
         }
     }
 }
@@ -155,15 +177,15 @@ class FillAuthorizationSmsCodeAction implements JourneyAction<AuthorizationJourn
 
     constructor(
         private readonly pageActions: PageActions,
-        private readonly inputService: CommandLineInputService,
+        private readonly phoneResourceService: PhoneResourceService,
     ) {
     }
 
     async run(context: AuthorizationJourneyContext): Promise<void> {
-        const code = await this.inputService.readSmsCode();
+        const code = await this.phoneResourceService.getVerificationCode();
         context.smsVerificationCode = code;
         await this.pageActions.typeIntoSelector('input[name="code"]', code);
-        actionLog('sms-otp', this.name, '已将命令行输入的短信验证码填入 input[name="code"]。');
+        actionLog('sms-otp', this.name, '已将短信验证码填入 input[name="code"]。');
     }
 }
 
@@ -294,6 +316,9 @@ class ExchangeAuthorizationTokenAction implements JourneyAction<AuthorizationJou
 class SaveAuthorizationResultAction implements JourneyAction<AuthorizationJourneyContext> {
     readonly name = 'save-authorization-result';
 
+    constructor(private readonly phoneResourceService?: PhoneResourceService) {
+    }
+
     async run(context: AuthorizationJourneyContext): Promise<void> {
         if (!context.tokenResponse) {
             throw new Error('[授权] 缺少 token 响应，无法保存授权结果。');
@@ -312,6 +337,11 @@ class SaveAuthorizationResultAction implements JourneyAction<AuthorizationJourne
         if (context.account.filePath && fs.existsSync(context.account.filePath)) {
             fs.unlinkSync(context.account.filePath);
             actionLog('callback', this.name, `已删除注册文件：${context.account.filePath}`);
+        }
+
+        if (context.phoneVerificationRequired && context.smsVerificationCode) {
+            await this.phoneResourceService?.markVerificationSucceeded();
+            context.phoneVerificationSucceeded = true;
         }
     }
 }
@@ -348,9 +378,9 @@ export function createAuthorizationMailOtpPageStep(
 
 export function createAuthorizationPhonePageStep(
     pageActions: PageActions,
-    inputService: CommandLineInputService,
+    phoneResourceService: PhoneResourceService,
 ): JourneyStep<AuthorizationJourneyContext> {
-    const phoneNumberAction = new FillAuthorizationPhoneNumberAction(pageActions, inputService);
+    const phoneNumberAction = new FillAuthorizationPhoneNumberAction(pageActions, phoneResourceService);
     return new PageJourneyStep('authorization-phone-page', ['phone'], 'phone', [
         phoneNumberAction,
         new ClickAuthorizationPhoneContinueAction(pageActions, phoneNumberAction),
@@ -361,10 +391,10 @@ export function createAuthorizationPhonePageStep(
 
 export function createAuthorizationSmsOtpPageStep(
     pageActions: PageActions,
-    inputService: CommandLineInputService,
+    phoneResourceService: PhoneResourceService,
 ): JourneyStep<AuthorizationJourneyContext> {
     return new PageJourneyStep('authorization-sms-otp-page', ['sms-otp'], 'sms-otp', [
-        new FillAuthorizationSmsCodeAction(pageActions, inputService),
+        new FillAuthorizationSmsCodeAction(pageActions, phoneResourceService),
         new ClickAuthorizationSmsContinueAction(pageActions),
     ], FLOW_NAME, async () => {
         await retryAuthorizationFromErrorPage(pageActions, 'authorization-sms-otp-page');
@@ -392,11 +422,12 @@ export function createAuthorizationCallbackPageStep(
     callbackTargets: string[],
     currentUrlProvider: () => string,
     capturedUrlProvider: () => string | null,
+    phoneResourceService?: PhoneResourceService,
 ): JourneyStep<AuthorizationJourneyContext> {
     return new PageJourneyStep('authorization-callback-page', ['callback'], 'callback', [
         new WaitForAuthorizationCallbackAction(callbackTargets, currentUrlProvider, capturedUrlProvider),
         new ParseAuthorizationCallbackAction(oauthService),
         new ExchangeAuthorizationTokenAction(oauthService),
-        new SaveAuthorizationResultAction(),
+        new SaveAuthorizationResultAction(phoneResourceService),
     ], FLOW_NAME);
 }

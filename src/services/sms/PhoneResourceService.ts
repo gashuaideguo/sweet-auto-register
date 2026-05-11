@@ -13,7 +13,6 @@ export class PhoneResourceService {
     private readonly smsServices: Array<{ provider: SmsProviderType; country: SmsCountryConfig; smsService: SmsService }>,
     private readonly options: {
       provider: SmsProviderType;
-      maxUses: number;
       pollIntervalMs: number;
       maxAttempts: number;
     },
@@ -25,17 +24,13 @@ export class PhoneResourceService {
     const state = this.readState();
     if (state?.phoneNumber) {
       const matchingService = this.findMatchingService(state.provider, state.countryConfig);
-      if (matchingService && state.useCount < this.options.maxUses) {
+      if (matchingService) {
         matchingService.smsService.restoreActivation(state);
-        logger.info(`[授权] 正在复用手机号：${this.formatPhoneLabel(state.countryConfig, state.phoneNumber)} useCount=${state.useCount}/${this.options.maxUses}`);
+        logger.info(`[授权] 正在复用手机号：${this.formatPhoneLabel(state.countryConfig, state.phoneNumber)} useCount=${state.useCount}`);
         return state;
       }
 
-      if (!matchingService) {
-        logger.info(`[授权] 当前手机号供应商或国家配置不匹配，准备重新申请。provider=${state.provider}`);
-      } else {
-        logger.info(`[授权] 当前手机号已达到使用上限，准备重新申请。phone=${this.formatPhoneLabel(state.countryConfig, state.phoneNumber)} useCount=${state.useCount}`);
-      }
+      logger.info(`[授权] 当前手机号供应商或国家配置不匹配，准备重新申请。provider=${state.provider}`);
       await this.cancelCurrentPhone();
     }
 
@@ -72,7 +67,7 @@ export class PhoneResourceService {
       updatedAt: new Date().toISOString(),
     };
     this.writeState(nextState);
-    logger.info(`[授权] 已更新手机号使用次数。phone=${this.formatPhoneLabel(nextState.countryConfig, nextState.phoneNumber)} useCount=${nextState.useCount}/${this.options.maxUses}`);
+    logger.info(`[授权] 已更新手机号使用次数。phone=${this.formatPhoneLabel(nextState.countryConfig, nextState.phoneNumber)} useCount=${nextState.useCount}`);
   }
 
   async cancelCurrentPhone(): Promise<void> {

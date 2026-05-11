@@ -17,6 +17,7 @@ export type AuthorizationJourneyContext = {
   mailSession?: MailSession;
   mailVerificationCode?: string;
   phoneVerificationRequired?: boolean;
+  phoneVerificationSucceeded?: boolean;
   phoneNumber?: string;
   smsVerificationCode?: string;
   selectedSmsCountry?: SmsCountryConfig;

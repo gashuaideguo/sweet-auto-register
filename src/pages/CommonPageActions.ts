@@ -355,6 +355,43 @@ export class CommonPageActions implements PageActions {
     throw new Error(`Timed out setting input value: ${selector}`);
   }
 
+  async getHtml(options: { stableDurationMs?: number; timeoutMs?: number; pollIntervalMs?: number } = {}): Promise<string> {
+    const stableDurationMs = options.stableDurationMs ?? 0;
+    if (stableDurationMs <= 0) {
+      return await this.page.content();
+    }
+
+    const timeoutMs = options.timeoutMs ?? 10000;
+    const pollIntervalMs = options.pollIntervalMs ?? 500;
+    const start = Date.now();
+    let lastHtml = '';
+    let latestHtml = '';
+    let stableStart = start;
+
+    while (Date.now() - start < timeoutMs) {
+      try {
+        latestHtml = await this.page.content();
+        if (latestHtml === lastHtml) {
+          if (Date.now() - stableStart >= stableDurationMs) {
+            return latestHtml;
+          }
+        } else {
+          lastHtml = latestHtml;
+          stableStart = Date.now();
+        }
+      } catch (error) {
+        if (!this.isRetryableContextError(error)) {
+          throw error;
+        }
+      }
+
+      await sleep(pollIntervalMs);
+    }
+
+    logger.warn(`[页面操作] 等待 HTML 稳定超时，将保存当前最新 HTML。timeoutMs=${timeoutMs}`);
+    return latestHtml || await this.page.content();
+  }
+
   async getTitle(): Promise<string> {
     const timeoutMs = 10000;
     const start = Date.now();

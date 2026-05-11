@@ -7,6 +7,7 @@
     "start": "tsx src/main.ts",
     "mail:code": "tsx src/app/runFetchMailCodeDemo.ts",
     "sms:code": "tsx src/app/runFetchSmsCodeDemo.ts",
+    "5sim:test": "tsx src/app/runFiveSimServiceTest.ts",
     "callback": "tsx src/app/runAuthorizationCallbackTest.ts",
     "sync": "tsx src/app/runSyncCpa.ts",
     "check": "tsc --noEmit"

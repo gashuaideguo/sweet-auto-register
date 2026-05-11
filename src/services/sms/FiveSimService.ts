@@ -37,7 +37,8 @@ export class FiveSimService implements SmsService, PhoneProvider {
             return this.phoneNumber;
         }
 
-        const data = await this.request(`user/buy/activation/${encodeURIComponent(this.country.providerCountry)}/${encodeURIComponent(this.country.providerOperator)}/${encodeURIComponent(this.config.fiveSim.product)}`);
+        const query = this.country.providerOperator === 'any' && this.country.maxPrice > 0 ? {maxPrice: String(this.country.maxPrice)} : undefined;
+        const data = await this.request(`user/buy/activation/${encodeURIComponent(this.country.providerCountry)}/${encodeURIComponent(this.country.providerOperator)}/${encodeURIComponent(this.config.fiveSim.product)}`, query);
         const activation = this.parseActivation(data);
         this.restoreActivation(activation);
         logger.info(`[短信服务] 已获取手机号：${this.phoneNumber} activation=${this.activationId}`);
@@ -63,7 +64,7 @@ export class FiveSimService implements SmsService, PhoneProvider {
         }
 
         const code = Array.isArray(data.sms)
-            ? data.sms.find((item) => typeof item?.code === 'string' && item.code.trim())?.code?.trim()
+            ? [...data.sms].reverse().find((item) => typeof item?.code === 'string' && item.code.trim())?.code?.trim()
             : '';
         if (status === 'RECEIVED' && code) {
             return {received: true, code};
@@ -84,10 +85,18 @@ export class FiveSimService implements SmsService, PhoneProvider {
         if (!this.activationId) {
             return;
         }
-        await this.request(`user/cancel/${this.activationId}`);
-        logger.info(`[短信服务] 已取消激活记录。activation=${this.activationId}`);
-        this.activationId = null;
-        this.phoneNumber = null;
+
+        const activationId = this.activationId;
+        try {
+            await this.request(`user/cancel/${activationId}`);
+            logger.info(`[短信服务] 已取消激活记录。activation=${activationId}`);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            logger.warn(`[短信服务] 5sim 取消激活记录失败，已忽略。activation=${activationId} error=${message}`);
+        } finally {
+            this.activationId = null;
+            this.phoneNumber = null;
+        }
     }
 
     private requireActivationId(): number {
@@ -117,17 +126,37 @@ export class FiveSimService implements SmsService, PhoneProvider {
         };
     }
 
-    private async request(path: string): Promise<unknown> {
-        const response = await fetch(`${this.baseUrl}/${path}`, {
+    private async request(path: string, query?: Record<string, string>): Promise<unknown> {
+        const url = new URL(`${this.baseUrl}/${path}`);
+        for (const [key, value] of Object.entries(query ?? {})) {
+            url.searchParams.set(key, value);
+        }
+        logger.info(`[短信服务] 5sim 请求 URL：${url.toString()}`);
+
+        const response = await fetch(url, {
             method: 'GET',
             headers: {
                 Accept: 'application/json',
                 Authorization: `Bearer ${this.config.fiveSim.apiKey}`,
             },
         });
-        if (!response.ok) {
-            throw new Error(`5sim request failed: ${response.status} ${response.statusText}`);
+        const body = await response.text();
+        const message = body.trim();
+
+        let payload: unknown = null;
+        if (message) {
+            try {
+                payload = JSON.parse(message) as unknown;
+            } catch {
+                throw new Error(`5sim request failed: ${response.status} ${response.statusText} - ${message}`);
+            }
         }
-        return await response.json();
+
+        if (!response.ok) {
+            const detail = message ? ` - ${message}` : '';
+            throw new Error(`5sim request failed: ${response.status} ${response.statusText}${detail}`);
+        }
+
+        return payload;
     }
 }

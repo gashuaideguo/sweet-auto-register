@@ -3,7 +3,8 @@ import type {BrowserService} from '../../browser/BrowserService.js';
 import {logger} from '../../shared/logger.js';
 import {OAuthService} from '../../services/oauth/OAuthService.js';
 import {HttpMailService} from '../../services/mail/HttpMailService.js';
-import {CommandLineInputService} from '../../services/input/CommandLineInputService.js';
+import {createSmsService} from '../../services/sms/createSmsService.js';
+import {PhoneResourceService} from '../../services/sms/PhoneResourceService.js';
 import type {AuthorizationAccount} from '../authorizationFlow.js';
 import {JourneyRunner} from '../journey/JourneyRunner.js';
 import {WaitForBrowserChallengeStep} from '../journey/steps/WaitForBrowserChallengeStep.js';
@@ -22,13 +23,45 @@ import {
 import {OpenAuthorizationPageStep} from '../authorization/steps/OpenAuthorizationPageStep.js';
 import {CommonPageActions} from '../../pages/CommonPageActions.js';
 
+function createAuthorizationPhoneResourceService(config: AppConfig): PhoneResourceService {
+    const countries = config.sms.provider === '5sim'
+        ? config.sms.fiveSim.countries
+        : config.sms.heroSms.countries;
+
+    if (!countries.length) {
+        throw new Error(`[授权] ${config.sms.provider} 至少需要配置一个短信国家。`);
+    }
+    if (config.sms.provider === '5sim') {
+        if (!config.sms.fiveSim.apiKey) {
+            throw new Error('[授权] sms.fiveSim.apiKey 必填。');
+        }
+        if (!config.sms.fiveSim.product) {
+            throw new Error('[授权] sms.fiveSim.product 必填。');
+        }
+    } else if (!config.sms.heroSms.apiKey) {
+        throw new Error('[授权] sms.heroSms.apiKey 必填。');
+    }
+
+    const smsServices = countries.map((country) => ({
+        provider: config.sms.provider,
+        country,
+        smsService: createSmsService(config.sms, country),
+    }));
+
+    return new PhoneResourceService(smsServices, {
+        provider: config.sms.provider,
+        pollIntervalMs: config.sms.pollIntervalMs,
+        maxAttempts: config.sms.maxAttempts,
+    });
+}
+
 export async function openAuthorizationJourney(browserService: BrowserService, config: AppConfig, account: AuthorizationAccount): Promise<void> {
     const oauthService = OAuthService.fromAppConfig(config);
     const browser = browserService.getBrowser();
     const page = browserService.getPage();
     const pageActions = new CommonPageActions(page);
     const mailService = new HttpMailService(config.mail);
-    const commandLineInputService = new CommandLineInputService();
+    const phoneResourceService = createAuthorizationPhoneResourceService(config);
     const waitForChallengeStep = new WaitForBrowserChallengeStep<AuthorizationJourneyContext>(browserService, config.browser.challengeTimeoutMs);
     const authorizationUrl = oauthService.getAuthUrl();
     const redirectUrl = new URL(oauthService.getRedirectUri());
@@ -116,8 +149,8 @@ export async function openAuthorizationJourney(browserService: BrowserService, c
             intervalMs: config.mail.pollIntervalMs,
             maxAttempts: config.mail.maxAttempts,
         }),
-        createAuthorizationPhonePageStep(pageActions, commandLineInputService),
-        createAuthorizationSmsOtpPageStep(pageActions, commandLineInputService),
+        createAuthorizationPhonePageStep(pageActions, phoneResourceService),
+        createAuthorizationSmsOtpPageStep(pageActions, phoneResourceService),
         createAuthorizationConsentPageStep(pageActions),
         createAuthorizationOrganizationPageStep(pageActions),
         createAuthorizationCallbackPageStep(
@@ -125,6 +158,7 @@ export async function openAuthorizationJourney(browserService: BrowserService, c
             callbackTargets,
             () => page.url(),
             () => capturedCallbackUrl,
+            phoneResourceService,
         ),
     ], {
         flowName: '授权',
@@ -151,6 +185,16 @@ export async function openAuthorizationJourney(browserService: BrowserService, c
 
     try {
         await runner.run(initialContext);
+    } catch (error) {
+        if (initialContext.phoneVerificationRequired && !initialContext.phoneVerificationSucceeded) {
+            try {
+                await phoneResourceService.cancelCurrentPhone();
+            } catch (cancelError) {
+                const message = cancelError instanceof Error ? cancelError.message : String(cancelError);
+                logger.warn(`[授权] 取消当前手机号失败：${message}`);
+            }
+        }
+        throw error;
     } finally {
         callbackListenerActive = false;
         for (const cleanup of cleanupCallbacks) {

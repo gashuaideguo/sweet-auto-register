@@ -56,6 +56,7 @@ export const defaultConfig: AppConfig = {
                     order: 0,
                     providerCountry: 'any',
                     providerOperator: 'any',
+                    maxPrice: 0,
                 },
             ],
         },

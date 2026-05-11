@@ -50,6 +50,7 @@ export type HeroSmsCountryConfig = SmsCountryConfig & {
 export type FiveSimCountryConfig = SmsCountryConfig & {
   providerCountry: string;
   providerOperator: string;
+  maxPrice: number;
 };
 
 export type HeroSmsProviderConfig = {

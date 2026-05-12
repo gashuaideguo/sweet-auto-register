@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import type {BrowserService} from '../../browser/BrowserService.js';
 import {logger} from '../../shared/logger.js';
 import {sleep} from '../../shared/sleep.js';
 import type {PageActions} from '../../pages/types.js';
@@ -19,7 +20,10 @@ type AuthorizationStageName = 'login' | 'password' | 'mail-otp' | 'phone' | 'sms
 
 const PHONE_INPUT_SELECTOR = 'input#tel[name="__reservedForPhoneNumberInput_tel"]';
 const PHONE_ERROR_ICON_SELECTOR = 'svg[title="错误"], svg[title="error"], svg[title="Error"]';
+const PHONE_ERROR_WAIT_TIMEOUT_MS = 8000;
+const PHONE_ERROR_WAIT_INTERVAL_MS = 500;
 const PHONE_HTML_DIR = path.join(process.cwd(), 'auth', 'html');
+const UNUSABLE_PHONE_SCREENSHOT_DIR = path.join(process.cwd(), 'screenshots', 'unusable-phones');
 
 function actionLog(stage: AuthorizationStageName, action: string, message: string): void {
     logger.info(`[${FLOW_NAME}][${stage}][${action}] ${message}`);
@@ -29,6 +33,34 @@ function createHtmlSnapshotPath(prefix: string): string {
     fs.mkdirSync(PHONE_HTML_DIR, {recursive: true});
     const timestamp = new Date().toISOString().replace(/[.:]/g, '-');
     return path.join(PHONE_HTML_DIR, `${prefix}-${timestamp}.html`);
+}
+
+function createUnusablePhoneScreenshotPath(phoneNumber?: string): string {
+    const safePhoneNumber = (phoneNumber || 'unknown-phone').replace(/[\\/:*?"<>|\s]+/g, '_');
+    const timestamp = new Date().toISOString().replace(/[.:]/g, '-');
+    return path.join(UNUSABLE_PHONE_SCREENSHOT_DIR, `${safePhoneNumber}-${timestamp}.png`);
+}
+
+async function saveUsedPhoneCancellationScreenshot(
+    browserService: BrowserService,
+    state: PersistedPhoneState | null,
+    stage: AuthorizationStageName,
+    actionName: string,
+): Promise<void> {
+    if (!state || state.useCount <= 0) {
+        return;
+    }
+
+    const filePath = createUnusablePhoneScreenshotPath(state.phoneNumber);
+
+    try {
+        fs.mkdirSync(UNUSABLE_PHONE_SCREENSHOT_DIR, {recursive: true});
+        await browserService.screenshot(filePath);
+        actionLog(stage, actionName, `已使用手机号取消前页面截图已保存：${filePath} useCount=${state.useCount}`);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn(`[${FLOW_NAME}][${stage}][${actionName}] 已使用手机号取消前截图失败，将继续后续流程。filePath=${filePath} useCount=${state.useCount} error=${message}`);
+    }
 }
 
 class FillAuthorizationEmailAction implements JourneyAction<AuthorizationJourneyContext> {
@@ -113,6 +145,7 @@ class FillAuthorizationPhoneNumberAction implements JourneyAction<AuthorizationJ
     constructor(
         private readonly pageActions: PageActions,
         private readonly phoneResourceService: PhoneResourceService,
+        private readonly browserService: BrowserService,
     ) {
     }
 
@@ -126,6 +159,7 @@ class FillAuthorizationPhoneNumberAction implements JourneyAction<AuthorizationJ
     }
 
     async replaceAndFillPhoneNumber(context: AuthorizationJourneyContext): Promise<void> {
+        await saveUsedPhoneCancellationScreenshot(this.browserService, this.phoneResourceService.getCurrentPhoneState(), 'phone', this.name);
         const state = await this.phoneResourceService.replacePhone();
         await this.fillPhoneNumber(context, state);
     }
@@ -152,14 +186,13 @@ class ClickAuthorizationPhoneContinueAction implements JourneyAction<Authorizati
         while (true) {
             await this.pageActions.clickElement('button[data-dd-action-name="Continue"][type="submit"]', 30000);
             actionLog('phone', this.name, '已点击手机号继续按钮。');
-            await sleep(1500);
 
             // const htmlPath = createHtmlSnapshotPath('authorization-phone-after-continue');
             // const html = await this.pageActions.getHtml({stableDurationMs: 3000, timeoutMs: 15000});
             // fs.writeFileSync(htmlPath, html, 'utf8');
             // actionLog('phone', this.name, `手机号继续后页面 HTML 已保存：${htmlPath}`);
 
-            const hasPhoneError = await this.pageActions.isSelectorVisible(PHONE_ERROR_ICON_SELECTOR);
+            const hasPhoneError = await this.waitForPhoneError();
             actionLog('phone', this.name, `手机号错误图标检测结果：${hasPhoneError ? '已出现' : '未出现'} selector=${PHONE_ERROR_ICON_SELECTOR}`);
 
             if (!hasPhoneError) {
@@ -170,6 +203,19 @@ class ClickAuthorizationPhoneContinueAction implements JourneyAction<Authorizati
             await this.phoneNumberAction.replaceAndFillPhoneNumber(context);
         }
     }
+
+    private async waitForPhoneError(): Promise<boolean> {
+        const deadline = Date.now() + PHONE_ERROR_WAIT_TIMEOUT_MS;
+
+        while (Date.now() < deadline) {
+            if (await this.pageActions.isSelectorVisible(PHONE_ERROR_ICON_SELECTOR)) {
+                return true;
+            }
+            await sleep(PHONE_ERROR_WAIT_INTERVAL_MS);
+        }
+
+        return false;
+    }
 }
 
 class FillAuthorizationSmsCodeAction implements JourneyAction<AuthorizationJourneyContext> {
@@ -178,14 +224,20 @@ class FillAuthorizationSmsCodeAction implements JourneyAction<AuthorizationJourn
     constructor(
         private readonly pageActions: PageActions,
         private readonly phoneResourceService: PhoneResourceService,
+        private readonly browserService: BrowserService,
     ) {
     }
 
     async run(context: AuthorizationJourneyContext): Promise<void> {
-        const code = await this.phoneResourceService.getVerificationCode();
-        context.smsVerificationCode = code;
-        await this.pageActions.typeIntoSelector('input[name="code"]', code);
-        actionLog('sms-otp', this.name, '已将短信验证码填入 input[name="code"]。');
+        try {
+            const code = await this.phoneResourceService.getVerificationCode();
+            context.smsVerificationCode = code;
+            await this.pageActions.typeIntoSelector('input[name="code"]', code);
+            actionLog('sms-otp', this.name, '已将短信验证码填入 input[name="code"]。');
+        } catch (error) {
+            await saveUsedPhoneCancellationScreenshot(this.browserService, this.phoneResourceService.getCurrentPhoneState(), 'sms-otp', this.name);
+            throw error;
+        }
     }
 }
 
@@ -379,8 +431,9 @@ export function createAuthorizationMailOtpPageStep(
 export function createAuthorizationPhonePageStep(
     pageActions: PageActions,
     phoneResourceService: PhoneResourceService,
+    browserService: BrowserService,
 ): JourneyStep<AuthorizationJourneyContext> {
-    const phoneNumberAction = new FillAuthorizationPhoneNumberAction(pageActions, phoneResourceService);
+    const phoneNumberAction = new FillAuthorizationPhoneNumberAction(pageActions, phoneResourceService, browserService);
     return new PageJourneyStep('authorization-phone-page', ['phone'], 'phone', [
         phoneNumberAction,
         new ClickAuthorizationPhoneContinueAction(pageActions, phoneNumberAction),
@@ -392,9 +445,10 @@ export function createAuthorizationPhonePageStep(
 export function createAuthorizationSmsOtpPageStep(
     pageActions: PageActions,
     phoneResourceService: PhoneResourceService,
+    browserService: BrowserService,
 ): JourneyStep<AuthorizationJourneyContext> {
     return new PageJourneyStep('authorization-sms-otp-page', ['sms-otp'], 'sms-otp', [
-        new FillAuthorizationSmsCodeAction(pageActions, phoneResourceService),
+        new FillAuthorizationSmsCodeAction(pageActions, phoneResourceService, browserService),
         new ClickAuthorizationSmsContinueAction(pageActions),
     ], FLOW_NAME, async () => {
         await retryAuthorizationFromErrorPage(pageActions, 'authorization-sms-otp-page');

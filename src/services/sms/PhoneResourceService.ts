@@ -42,6 +42,10 @@ export class PhoneResourceService {
     return await this.allocateNewPhone();
   }
 
+  getCurrentPhoneState(): PersistedPhoneState | null {
+    return this.readState();
+  }
+
   async markReady(): Promise<void> {
     await this.requireActiveService().smsService.markReady();
   }

@@ -149,8 +149,8 @@ export async function openAuthorizationJourney(browserService: BrowserService, c
             intervalMs: config.mail.pollIntervalMs,
             maxAttempts: config.mail.maxAttempts,
         }),
-        createAuthorizationPhonePageStep(pageActions, phoneResourceService),
-        createAuthorizationSmsOtpPageStep(pageActions, phoneResourceService),
+        createAuthorizationPhonePageStep(pageActions, phoneResourceService, browserService),
+        createAuthorizationSmsOtpPageStep(pageActions, phoneResourceService, browserService),
         createAuthorizationConsentPageStep(pageActions),
         createAuthorizationOrganizationPageStep(pageActions),
         createAuthorizationCallbackPageStep(

@@ -5,14 +5,13 @@ import {authorizationFlow, type AuthorizationAccount} from '../flows/authorizati
 import {registerFlow} from '../flows/registerFlow.js';
 import type {RegistrationRecord} from '../flows/types.js';
 import {logger} from '../shared/logger.js';
-import {sleep} from '../shared/sleep.js';
 
 function isSmsVerificationTimeout(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error);
     return message.includes('SMS verification code timeout');
 }
 
-function getAuthorizationAccounts(limit: number): AuthorizationAccount[] {
+function getAuthorizationAccounts(limit: number, excludeFilePaths = new Set<string>()): AuthorizationAccount[] {
     const directory = path.join(process.cwd(), 'auth', 'register');
 
     if (!fs.existsSync(directory)) {
@@ -22,7 +21,6 @@ function getAuthorizationAccounts(limit: number): AuthorizationAccount[] {
     return fs.readdirSync(directory, {withFileTypes: true})
         .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
         .sort((left, right) => left.name.localeCompare(right.name))
-        .slice(0, limit)
         .map((entry) => {
             const filePath = path.join(directory, entry.name);
             const raw = fs.readFileSync(filePath, 'utf8');
@@ -37,7 +35,9 @@ function getAuthorizationAccounts(limit: number): AuthorizationAccount[] {
                 verify_code: String(parsed.verify_code ?? ''),
                 filePath,
             };
-        });
+        })
+        .filter((account) => !excludeFilePaths.has(account.filePath))
+        .slice(0, limit);
 }
 
 export class AppRunner {
@@ -48,40 +48,27 @@ export class AppRunner {
         const config = loadConfig();
         logger.info(`[应用] 配置加载完成，起始地址：${config.startUrl} targetCount=${this.accountCount}`);
 
-        const existingAccounts = getAuthorizationAccounts(this.accountCount);
-        const missingCount = Math.max(0, this.accountCount - existingAccounts.length);
-        logger.info(`[应用] 目标账号数量：${this.accountCount}，当前可授权账号数量：${existingAccounts.length}，需要补充注册数量：${missingCount}`);
+        const handledAccountFiles = new Set<string>();
 
-        for (let index = 1; index <= missingCount; index += 1) {
-            logger.info(`[应用] 开始补充注册第 ${index}/${missingCount} 个账号。`);
-            await this.runRegistration(config);
-        }
+        for (let index = 1; index <= this.accountCount; index += 1) {
+            const [existingAccount] = getAuthorizationAccounts(1, handledAccountFiles);
 
-        const accounts = getAuthorizationAccounts(this.accountCount);
-        logger.info(`[应用] 注册账号准备完成，可执行授权账号数量：${accounts.length}/${this.accountCount}`);
+            if (existingAccount) {
+                logger.info(`[应用] 发现已注册账号，直接执行第 ${index}/${this.accountCount} 个授权流程。email=${existingAccount.email}`);
+                await this.runAuthorization(config, existingAccount);
+                handledAccountFiles.add(existingAccount.filePath);
+            } else {
+                logger.info(`[应用] 未发现可授权账号，开始执行第 ${index}/${this.accountCount} 个注册流程。`);
+                await this.runRegistration(config);
+                const [registeredAccount] = getAuthorizationAccounts(1, handledAccountFiles);
 
-        if (accounts.length < this.accountCount) {
-            throw new Error(`[应用] 补充注册后账号数量仍不足。target=${this.accountCount} available=${accounts.length}`);
-        }
-
-        for (const [index, account] of accounts.entries()) {
-            logger.info(`[应用] 开始执行第 ${index + 1}/${this.accountCount} 个账号授权流程。`);
-            let authorized = false;
-            try {
-                await this.runAuthorization(config, account);
-                authorized = true;
-            } catch (error) {
-                if (!isSmsVerificationTimeout(error)) {
-                    throw error;
+                if (!registeredAccount) {
+                    throw new Error(`[应用] 注册后未找到可授权账号。index=${index} target=${this.accountCount}`);
                 }
 
-                const message = error instanceof Error ? error.message : String(error);
-                logger.warn(`[应用] 当前账号短信验证码超时，已结束本次授权并继续下一个账号。email=${account.email} error=${message}`);
-            }
-
-            if (authorized && index < accounts.length - 1) {
-                logger.info('[应用] 当前账号授权完成，等待 3 分钟后继续下一个账号。');
-                await sleep(3 * 60 * 1000);
+                logger.info(`[应用] 注册完成，开始执行第 ${index}/${this.accountCount} 个授权流程。email=${registeredAccount.email}`);
+                await this.runAuthorization(config, registeredAccount);
+                handledAccountFiles.add(registeredAccount.filePath);
             }
         }
     }
@@ -92,7 +79,19 @@ export class AppRunner {
     }
 
     private async runAuthorization(config: ReturnType<typeof loadConfig>, account: AuthorizationAccount): Promise<void> {
-        logger.info(`[应用] 开始执行授权账号。email=${account.email} file=${account.filePath}`);
-        await authorizationFlow(config, account);
+        while (true) {
+            try {
+                logger.info(`[应用] 开始执行授权账号。email=${account.email} file=${account.filePath}`);
+                await authorizationFlow(config, account);
+                return;
+            } catch (error) {
+                if (!isSmsVerificationTimeout(error)) {
+                    throw error;
+                }
+
+                const message = error instanceof Error ? error.message : String(error);
+                logger.warn(`[应用] 当前账号短信验证码超时，准备重新授权当前账号。email=${account.email} error=${message}`);
+            }
+        }
     }
 }

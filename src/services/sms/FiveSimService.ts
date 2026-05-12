@@ -3,6 +3,7 @@ import type {PhoneProvider} from '../contracts/PhoneProvider.js';
 import type {SmsService} from './SmsService.js';
 import type {SmsActivation, SmsStatusResult} from './types.js';
 import {logger} from '../../shared/logger.js';
+import {sleep} from '../../shared/sleep.js';
 
 export class FiveSimService implements SmsService, PhoneProvider {
     private readonly baseUrl = 'https://5sim.net/v1';
@@ -87,15 +88,33 @@ export class FiveSimService implements SmsService, PhoneProvider {
         }
 
         const activationId = this.activationId;
+        const maxCancelRetries = 5;
+        let cancelled = false;
+
         try {
-            await this.request(`user/cancel/${activationId}`);
-            logger.info(`[短信服务] 已取消激活记录。activation=${activationId}`);
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            logger.warn(`[短信服务] 5sim 取消激活记录失败，已忽略。activation=${activationId} error=${message}`);
+            for (let attempt = 1; attempt <= maxCancelRetries; attempt += 1) {
+                try {
+                    await this.request(`user/cancel/${activationId}`);
+                    logger.info(`[短信服务] 已取消激活记录。activation=${activationId} attempt=${attempt}/${maxCancelRetries}`);
+                    cancelled = true;
+                    break;
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    if (attempt >= maxCancelRetries) {
+                        logger.warn(`[短信服务] 5sim 取消激活记录失败，已忽略。activation=${activationId} attempt=${attempt}/${maxCancelRetries} error=${message}`);
+                        break;
+                    }
+                    logger.warn(`[短信服务] 5sim 取消激活记录失败，准备重试。activation=${activationId} attempt=${attempt}/${maxCancelRetries} error=${message}`);
+                    await sleep(1000 * attempt);
+                }
+            }
         } finally {
             this.activationId = null;
             this.phoneNumber = null;
+        }
+
+        if (!cancelled) {
+            logger.warn(`[短信服务] 5sim 激活记录未确认取消。activation=${activationId}`);
         }
     }
 

@@ -266,6 +266,29 @@ export class CommonPageActions implements PageActions {
     }
   }
 
+  async isBlankPage(): Promise<boolean> {
+    try {
+      return await this.page.evaluate(() => {
+        const bodyText = document.body?.innerText?.trim() ?? '';
+        const visibleElements = Array.from(document.body?.querySelectorAll('input, button, a, [role="button"], [role="textbox"]') ?? [])
+          .filter((element) => {
+            const style = window.getComputedStyle(element);
+            return element.getClientRects().length > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+          });
+        return bodyText.length === 0 && visibleElements.length === 0;
+      });
+    } catch (error) {
+      if (this.isRetryableContextError(error)) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  async reload(timeoutMs = 60000): Promise<void> {
+    await this.page.reload({ waitUntil: 'domcontentloaded', timeout: timeoutMs });
+  }
+
   async typeIntoSelector(selector: string, value: string): Promise<void> {
     await this.typeIntoSelectorSlowly(selector, value);
   }

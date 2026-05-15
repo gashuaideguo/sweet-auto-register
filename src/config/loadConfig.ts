@@ -1,10 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { parse } from 'yaml';
+import { parse, stringify } from 'yaml';
 import { defaultConfig } from './defaultConfig.js';
 import type { AppConfig, FiveSimCountryConfig, HeroSmsCountryConfig } from './types.js';
+import { assertValidConfig } from './validateConfig.js';
 
-const configPath = path.join(process.cwd(), 'config.yaml');
+export const CONFIG_PATH = path.join(process.cwd(), 'config.yaml');
 
 function sortCountriesByOrder<T extends { order: number }>(countries: T[]): T[] {
   return [...countries].sort((left, right) => right.order - left.order);
@@ -57,7 +58,7 @@ function normalizeSmsProvider(value: unknown): AppConfig['sms']['provider'] {
   return defaultConfig.sms.provider;
 }
 
-function normalizeConfig(input: Partial<AppConfig>): AppConfig {
+export function normalizeConfig(input: Partial<AppConfig>): AppConfig {
   return {
     ...defaultConfig,
     ...input,
@@ -124,12 +125,22 @@ function normalizeConfig(input: Partial<AppConfig>): AppConfig {
   };
 }
 
-export function loadConfig(): AppConfig {
-  if (!fs.existsSync(configPath)) {
-    return defaultConfig;
+export function readRawConfig(): Partial<AppConfig> {
+  if (!fs.existsSync(CONFIG_PATH)) {
+    return {};
   }
 
-  const raw = fs.readFileSync(configPath, 'utf8');
-  const parsed = parse(raw) as Partial<AppConfig>;
-  return normalizeConfig(parsed);
+  const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
+  return parse(raw) as Partial<AppConfig>;
+}
+
+export function loadConfig(): AppConfig {
+  return normalizeConfig(readRawConfig());
+}
+
+export function saveConfig(input: Partial<AppConfig>): AppConfig {
+  const normalized = normalizeConfig(input);
+  assertValidConfig(normalized);
+  fs.writeFileSync(CONFIG_PATH, stringify(normalized), 'utf8');
+  return normalized;
 }

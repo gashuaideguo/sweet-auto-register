@@ -10,6 +10,8 @@ export interface PageActions {
   clickElementInScrollableListByText(containerSelector: string, text: string, timeoutMs?: number): Promise<void>;
   isTextVisible(text: string): Promise<boolean>;
   isSelectorVisible(selector: string): Promise<boolean>;
+  isBlankPage(): Promise<boolean>;
+  reload(timeoutMs?: number): Promise<void>;
   typeIntoSelector(selector: string, value: string): Promise<void>;
   typeIntoSelectorSlowly(selector: string, value: string, delayMs?: number): Promise<void>;
   setInputValue(selector: string, value: string): Promise<void>;

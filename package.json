@@ -10,9 +10,11 @@
     "5sim:test": "tsx src/app/runFiveSimServiceTest.ts",
     "callback": "tsx src/app/runAuthorizationCallbackTest.ts",
     "sync": "tsx src/app/runSyncCpa.ts",
+    "web": "tsx src/web/webMain.ts",
     "check": "tsc --noEmit"
   },
   "dependencies": {
+    "chalk": "^5.6.2",
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
     "puppeteer-real-browser": "^1.4.4",

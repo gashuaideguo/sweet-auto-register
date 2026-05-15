@@ -72,9 +72,7 @@ export class CpaSyncService {
                     fs.unlinkSync(filePath);
                     logger.info(`[同步] 已删除本地文件：${fileName}`);
                 } catch (error) {
-                    const message = error instanceof Error ? error.message : String(error);
-                    logger.error(`[同步] 文件上传失败：${fileName} error=${message}`);
-                    throw error;
+                    throw new Error(`[同步] 文件上传失败：${fileName}`, {cause: error});
                 }
             }
         } finally {

@@ -20,7 +20,7 @@ type AuthorizationStageName = 'login' | 'password' | 'mail-otp' | 'phone' | 'sms
 
 const PHONE_INPUT_SELECTOR = 'input#tel[name="__reservedForPhoneNumberInput_tel"]';
 const PHONE_ERROR_ICON_SELECTOR = 'svg[title="错误"], svg[title="error"], svg[title="Error"]';
-const PHONE_ERROR_WAIT_TIMEOUT_MS = 8000;
+const PHONE_ERROR_WAIT_TIMEOUT_MS = 15000;
 const PHONE_ERROR_WAIT_INTERVAL_MS = 500;
 const PHONE_HTML_DIR = path.join(process.cwd(), 'auth', 'html');
 const UNUSABLE_PHONE_SCREENSHOT_DIR = path.join(process.cwd(), 'screenshots', 'unusable-phones');
